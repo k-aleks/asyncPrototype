@@ -25,11 +25,28 @@ public class RequestContext {
         return httpClient;
     }
 
-    public void incrementCurrentConcurencyLevel() {
+    public void incrementCurrentConcurrencyLevel() {
         currentConcurrencyLevel++;
     }
 
     public CompletableFuture<HttpResult>[] getActiveFutures() {
         return activeFutures;
+    }
+}
+
+class RequestContextFactory {
+    private static CompletableFuture neverEndsFuture = new CompletableFuture();
+
+    static RequestContext create(HttpClient httpClient, int maxConcurrencyLevel) {
+        CompletableFuture<HttpResult>[] activeFutures = new CompletableFuture[maxConcurrencyLevel + 1];
+        fillNullsWithNeverEndsFutures(activeFutures);
+        return new RequestContext(httpClient, activeFutures);
+    }
+
+    private static void fillNullsWithNeverEndsFutures(CompletableFuture[] futures) {
+        for (int i = 0; i < futures.length; i++) {
+            if (futures[i] == null)
+                futures[i] = neverEndsFuture;
+        }
     }
 }
