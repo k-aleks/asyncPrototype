@@ -7,7 +7,7 @@ public class ForkingStrategy {
 
     //в рельной жизни это параметры стратегии
     private int maxConcurrencyLevel = 3;
-    private int[] delays = new int[] {1, 1, 1};
+    private int[] delays = new int[] {1, 1, 2};
 
     //в реальной жизни это как-будто бы случайные значение:
     private int[] latencies = new int[] {4,3,1};
@@ -29,13 +29,14 @@ public class ForkingStrategy {
             Log.println("Completing future");
             context.getResultFuture().complete((HttpResult) futureResult);
         }
-        //за отведенное время не дождались ответа
+        //за отведенное время не дождали/**/сь ответа
         if (context.getCurrentConcurrencyLevel() < maxConcurrencyLevel) {
             sendNextAsyncRequest(context);
         }
-
-        //Больше нет реплик, пора вернуть timeout
-        context.getResultFuture().complete(new HttpResult(408));
+        else {
+            //Больше нет реплик, пора вернуть timeout
+            context.getResultFuture().complete(new HttpResult(408));
+        }
     }
 
     private void sendNextAsyncRequest(RequestContext context) {

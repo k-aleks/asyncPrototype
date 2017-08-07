@@ -10,12 +10,14 @@ public class Main {
 
         CompletableFuture<HttpResult> future = new ForkingStrategy().sendAsync(new HttpClient());
 
-//        Thread.sleep(2000);
         HttpResult httpResult = future.get();
 
         Log.println("Final result: " + httpResult.getResultCode());
 
-//        ForkJoinPool.commonPool().shutdownNow();
+//        ForkJoinPool.commonPool().shutdownNow(); //todo: how to wait correctly?
+        Thread.sleep(2000);
+
+        System.exit(0);
     }
 
 }
