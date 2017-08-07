@@ -13,65 +13,41 @@ public class ForkingStrategy {
     private int[] latencies = new int[] {4,3,1};
 
     public CompletableFuture<HttpResult> sendAsync(HttpClient httpClient) {
-        int currentConcurrencyLevel = 0;
         CompletableFuture<HttpResult>[] activeFutures = new CompletableFuture[maxConcurrencyLevel + 1];
-        fillNullsWithNeverEndsFutures(activeFutures);
+        RequestContext context = new RequestContext(httpClient, activeFutures);
 
-        Log.println("Sending the request #" + currentConcurrencyLevel);
-        CompletableFuture<HttpResult> resultFuture = httpClient.sendAsync(latencies[currentConcurrencyLevel]);
-        activeFutures[currentConcurrencyLevel] = resultFuture;
+        fillNullsWithNeverEndsFutures(context.getActiveFutures());
 
-        CompletableFuture delayFuture = AsyncDelay.delay(delays[currentConcurrencyLevel], TimeUnit.SECONDS);
-        activeFutures[currentConcurrencyLevel+1] = delayFuture;
+        sendNextAsyncRequest(context);
 
-        int finalCurrentConcurrencyLevel = currentConcurrencyLevel + 1;
-        CompletableFuture<HttpResult> future = CompletableFuture.anyOf(activeFutures)
-                                .thenApply(o -> onResponseOrTimeout(o, finalCurrentConcurrencyLevel, httpClient, activeFutures))
-                                .thenApply(o -> unwrapResult(o));
-        return future;
+        return context.getResultFuture();
     }
 
-    public HttpResult getHttpResult(CompletableFuture<HttpResult> cf) {
-        try {
-            return cf.get();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-        }
-        return new HttpResult(500);
-    }
-
-    private HttpResult unwrapResult(Object o) {
-        if (o instanceof HttpResult)
-            return (HttpResult) o;
-        return new HttpResult(408);
-    }
-
-    private CompletableFuture<HttpResult> onResponseOrTimeout(Object futureResult, int currentConcurrencyLevel, HttpClient httpClient, CompletableFuture<HttpResult>[] activeFutures) {
+    private void onResponseOrTimeout(Object futureResult, RequestContext context) {
         if (futureResult instanceof HttpResult) {
-            activeFutures[currentConcurrencyLevel - 1].cancel(false); //cancel delay
-            return CompletableFuture.completedFuture((HttpResult) futureResult);
+            context.getActiveFutures()[context.getCurrentConcurrencyLevel() - 1].cancel(false); //cancel delay
+            Log.println("Completing future");
+            context.getResultFuture().complete((HttpResult) futureResult);
         }
         //за отведенное время не дождались ответа
-        if (currentConcurrencyLevel < maxConcurrencyLevel) {
-            Log.println("Sending the request #" + currentConcurrencyLevel);
-
-            CompletableFuture<HttpResult> resultFuture = httpClient.sendAsync(latencies[currentConcurrencyLevel]);
-            activeFutures[currentConcurrencyLevel] = resultFuture;
-
-            CompletableFuture delayFuture = AsyncDelay.delay(delays[currentConcurrencyLevel], TimeUnit.SECONDS);
-            activeFutures[currentConcurrencyLevel+1] = delayFuture;
-
-            int finalCurrentConcurrencyLevel = currentConcurrencyLevel + 1;
-            CompletableFuture<HttpResult> future = CompletableFuture.anyOf(activeFutures)
-                    .thenApply(o -> onResponseOrTimeout(o, finalCurrentConcurrencyLevel, httpClient, activeFutures));
-
-            return future;
+        if (context.getCurrentConcurrencyLevel() < maxConcurrencyLevel) {
+            sendNextAsyncRequest(context);
         }
 
         //Больше нет реплик, пора вернуть timeout
-        return CompletableFuture.completedFuture(new HttpResult(408));
+        context.getResultFuture().complete(new HttpResult(408));
+    }
+
+    private void sendNextAsyncRequest(RequestContext context) {
+        Log.println("Sending the request #" + context.getCurrentConcurrencyLevel());
+        CompletableFuture<HttpResult> resultFuture = context.getHttpClient().sendAsync(latencies[context.getCurrentConcurrencyLevel()]);
+        context.getActiveFutures()[context.getCurrentConcurrencyLevel()] = resultFuture;
+
+        CompletableFuture delayFuture = AsyncDelay.delay(delays[context.getCurrentConcurrencyLevel()], TimeUnit.SECONDS);
+        context.getActiveFutures()[context.getCurrentConcurrencyLevel()+1] = delayFuture;
+
+        context.incrementCurrentConcurencyLevel();
+        CompletableFuture.anyOf(context.getActiveFutures()).thenAccept(o -> onResponseOrTimeout(o, context));
     }
 
     private void fillNullsWithNeverEndsFutures(CompletableFuture[] futures) {
