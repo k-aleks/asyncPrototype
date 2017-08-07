@@ -1,35 +1,43 @@
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class RequestContext {
+class RequestContext {
+    private final CompletableFuture<HttpResult> resultFuture;
+    private final HttpClient httpClient;
+    private final CompletableFuture<HttpResult>[] activeFutures;
     private int currentConcurrencyLevel;
-    private CompletableFuture<HttpResult> resultFuture;
-    private HttpClient httpClient;
-    private CompletableFuture<HttpResult>[] activeFutures;
+    private AtomicBoolean isRequestCancelled = new AtomicBoolean(false);
 
-    public RequestContext(HttpClient httpClient, CompletableFuture<HttpResult>[] activeFutures) {
+    RequestContext(HttpClient httpClient, CompletableFuture<HttpResult>[] activeFutures) {
         this.httpClient = httpClient;
         this.activeFutures = activeFutures;
         this.currentConcurrencyLevel = 0;
         this.resultFuture = new CompletableFuture<HttpResult>();
     }
 
-    public int getCurrentConcurrencyLevel() {
+    boolean IsRequestCancelled() {
+        if (isRequestCancelled.get() || resultFuture.isCancelled())
+            return true;
+        return false;
+    }
+
+    int getCurrentConcurrencyLevel() {
         return currentConcurrencyLevel;
     }
 
-    public CompletableFuture<HttpResult> getResultFuture() {
+    CompletableFuture<HttpResult> getResultFuture() {
         return resultFuture;
     }
 
-    public HttpClient getHttpClient() {
+    HttpClient getHttpClient() {
         return httpClient;
     }
 
-    public void incrementCurrentConcurrencyLevel() {
+    void incrementCurrentConcurrencyLevel() {
         currentConcurrencyLevel++;
     }
 
-    public CompletableFuture<HttpResult>[] getActiveFutures() {
+    CompletableFuture<HttpResult>[] getActiveFutures() {
         return activeFutures;
     }
 }

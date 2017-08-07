@@ -10,6 +10,12 @@ public class ForkingStrategy {
     //в реальной жизни это как-будто бы случайные значение:
     private int[] latencies = new int[] {4,3,1};
 
+    /**
+     * @return CompletableFuture which has HttpResult as a result.
+     * Метод Cancel() на этой future остановит отправку новых http-запросов и вызовет cancel() на future'ах,
+     * которые httpClient вернул как результат уже отправленных запросов.
+     * httpClient отвечает за корректную обработку cancel() на future, которые он возвращает.
+     */
     public CompletableFuture<HttpResult> sendAsync(HttpClient httpClient) {
         RequestContext context = RequestContextFactory.create(httpClient, maxConcurrencyLevel);
         sendNextAsyncRequest(context);
@@ -29,17 +35,28 @@ public class ForkingStrategy {
     }
 
     private void onResponseOrTimeout(Object futureResult, RequestContext context) {
+
+        if (context.IsRequestCancelled()) {
+            for (int i = 0; i < context.getCurrentConcurrencyLevel() + 1; i++) {
+                context.getActiveFutures()[i].cancel(false);
+            }
+            return;
+        }
+
         if (futureResult instanceof HttpResult) {
-            context.getActiveFutures()[context.getCurrentConcurrencyLevel() - 1].cancel(false); //todo: is it necessary to cancel() a delay ?
+            for (int i = 0; i < context.getCurrentConcurrencyLevel() + 1; i++) {
+                context.getActiveFutures()[i].cancel(false); //todo: is it necessary to cancel() a delay ?
+            }
             Log.println("Completing future");
             context.getResultFuture().complete((HttpResult) futureResult);
         }
+
         //за отведенное время не дождались ответа
         if (context.getCurrentConcurrencyLevel() < maxConcurrencyLevel) {
             sendNextAsyncRequest(context);
         }
         else {
-            //Больше нет реплик, пора вернуть timeout
+            //Больше нет реплик, пора вернуть timeout (не придерайтесь, это прототип)
             context.getResultFuture().complete(new HttpResult(408));
         }
     }
