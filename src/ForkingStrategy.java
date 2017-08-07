@@ -16,6 +16,18 @@ public class ForkingStrategy {
         return context.getResultFuture();
     }
 
+    private void sendNextAsyncRequest(RequestContext context) {
+        Log.println("Sending the request #" + context.getCurrentConcurrencyLevel());
+        CompletableFuture<HttpResult> resultFuture = context.getHttpClient().sendAsync(latencies[context.getCurrentConcurrencyLevel()]);
+        context.getActiveFutures()[context.getCurrentConcurrencyLevel()] = resultFuture;
+
+        CompletableFuture delayFuture = AsyncDelay.delay(delays[context.getCurrentConcurrencyLevel()], TimeUnit.SECONDS);
+        context.getActiveFutures()[context.getCurrentConcurrencyLevel()+1] = delayFuture;
+
+        context.incrementCurrentConcurrencyLevel();
+        CompletableFuture.anyOf(context.getActiveFutures()).thenAccept(o -> onResponseOrTimeout(o, context));
+    }
+
     private void onResponseOrTimeout(Object futureResult, RequestContext context) {
         if (futureResult instanceof HttpResult) {
             context.getActiveFutures()[context.getCurrentConcurrencyLevel() - 1].cancel(false); //todo: is it necessary to cancel() a delay ?
@@ -31,17 +43,4 @@ public class ForkingStrategy {
             context.getResultFuture().complete(new HttpResult(408));
         }
     }
-
-    private void sendNextAsyncRequest(RequestContext context) {
-        Log.println("Sending the request #" + context.getCurrentConcurrencyLevel());
-        CompletableFuture<HttpResult> resultFuture = context.getHttpClient().sendAsync(latencies[context.getCurrentConcurrencyLevel()]);
-        context.getActiveFutures()[context.getCurrentConcurrencyLevel()] = resultFuture;
-
-        CompletableFuture delayFuture = AsyncDelay.delay(delays[context.getCurrentConcurrencyLevel()], TimeUnit.SECONDS);
-        context.getActiveFutures()[context.getCurrentConcurrencyLevel()+1] = delayFuture;
-
-        context.incrementCurrentConcurrencyLevel();
-        CompletableFuture.anyOf(context.getActiveFutures()).thenAccept(o -> onResponseOrTimeout(o, context));
-    }
-
 }
